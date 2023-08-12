@@ -1,5 +1,21 @@
 <script>
+	import YoutubePlayerPlus from 'youtube-player-plus';
+
 	export let data;
+	let playerDiv;
+	console.log(playerDiv);
+
+	if (playerDiv) {
+		console.log(playerDiv);
+		const player = new YoutubePlayerPlus(playerDiv, {
+			relatedVideos: false,
+			width: 640,
+			height: 390
+		});
+		if (data.song) {
+			player.load(data.song?.videoId);
+		}
+	}
 </script>
 
 <header>カラオケ</header>
@@ -15,7 +31,7 @@
 	</p>
 	<div id="aside">
 		<div>
-			<div id="player" />
+			<div bind:this={playerDiv} />
 		</div>
 		<div class="flex between">
 			<div>
