@@ -1,10 +1,10 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import YoutubePlayerPlus from 'youtube-player-plus';
 
 	export let data;
 	let playerDiv: HTMLDivElement;
 	let player: YoutubePlayerPlus;
-	let time: number;
 
 	$: {
 		if (playerDiv) {
@@ -16,22 +16,113 @@
 				height: 390
 			});
 			player.load(data.song.videoId, true);
-			player.addListener('timeupdate', () => console.log(player.getCurrentTime()), 0);
+			player.setPlaybackRate(5);
 		}
 	}
+
+	let handle: number | undefined;
+	let onCount = 0;
+
+	const handleUpdate = () => {
+		const time = player.getCurrentTime();
+		while (data.song.times[onCount] <= time) {
+			onCount++;
+		}
+	};
+
+	onMount(() => {
+		if (handle) {
+			window.clearInterval(handle);
+		}
+		handle = window.setInterval(handleUpdate, 100 / 6);
+		return () => {
+			window.clearInterval(handle);
+			handle = undefined;
+		};
+	});
 
 	function onSongSelect(e: Event & { currentTarget: HTMLSelectElement }) {
 		window.location.pathname = e.currentTarget.value;
 	}
+
+	$: lines = data.song.text.split('\n');
+	$: chars = lines
+		.map((line) => line.split(''))
+		.map((line) => {
+			let newLine = [];
+			for (let i = 0; i < line.length; i++) {
+				newLine.push(line[i]);
+				if (i === line.length - 1) {
+					continue;
+				}
+				while (
+					[
+						'ゃ',
+						'ゅ',
+						'ょ',
+						'ャ',
+						'ュ',
+						'ョ',
+						'っ',
+						'ッ',
+						'ん',
+						'ン',
+						'.',
+						'。',
+						'、',
+						'ー'
+					].includes(line[i + 1])
+				) {
+					console.log(newLine);
+					newLine[newLine.length - 1] += line[i + 1];
+					i++;
+				}
+				if (
+					[
+						'今日',
+						'一人',
+						'二人',
+						'ゃう',
+						'ゅう',
+						'ょう',
+						'ャウ',
+						'ュウ',
+						'ョウ',
+						'えい',
+						'エイ',
+						'ない'
+					].includes(`${line[i]}${line[i + 1]}`)
+				) {
+					console.log(newLine);
+					newLine[newLine.length - 1] += line[i + 1];
+					i++;
+				}
+			}
+			return newLine;
+		});
+	$: timeSteps = chars.map((line, i) =>
+		chars.slice(0, i).reduce((acc, curr) => acc + curr.length, 0)
+	);
+
+	$: console.log({ chars, lines, timeSteps });
+
+	const handleCharClick = (i: number) => {
+		onCount = i;
+		player.seek(data.song.times[i]);
+	};
 </script>
 
 <header>カラオケ</header>
 <div class="flex">
 	<p id="text">
-		{#each data.song.text.split('\n') as line, i}
+		{#each chars as line, i}
 			<div>
-				{#each line.split('') as char, j}<span class={j % 5 === 0 ? 'white' : ''}>{char}</span
-					>{/each}
+				{#each line as char, j}
+					<span
+						class={timeSteps[i] + j < onCount ? 'white' : ''}
+						on:click={() => handleCharClick(timeSteps[i] + j)}>{char}</span
+					>
+				{/each}
 			</div>
 		{/each}
 	</p>
@@ -47,11 +138,11 @@
 			</div>
 			<select
 				id="select-song"
-				value={data.metadata.find((metadatum) => metadatum.videoId === data.song?.videoId)?.videoId}
+				value={data.songs.find((_song) => _song.videoId === data.song?.videoId)?.videoId}
 				on:input={onSongSelect}
 			>
-				{#each data.metadata as metadatum}
-					<option value={metadatum.videoId}>{metadatum.title}</option>
+				{#each data.songs as song}
+					<option value={song.videoId}>{song.title}</option>
 				{/each}
 			</select>
 		</div>
