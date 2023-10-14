@@ -1,102 +1,107 @@
 <script lang="ts">
-	import { displayTime } from '@/lib/index.js';
+	import { displayTime } from '@/lib';
+	import { CorrectionStep, EditingMode, state } from '@/lib/stores';
 	import { onMount } from 'svelte';
+	import type { MouseEventHandler } from 'svelte/elements.js';
+	import type { T, V } from 'vitest/dist/types-198fd1d9.js';
 	import YoutubePlayerPlus from 'youtube-player-plus';
 
 	export let data;
 
 	// Types and enums
 
-	enum EditingMode {
-		Uninitialized,
-		Playback,
-		Transcription,
-		Correction
-	}
-
-	enum CorrectionStep {
-		SelectStartPoint,
-		SelectEndPoint,
-		FixTimings
-	}
+	// prettier-ignore
+	const addBefore = ['ゃ',	'ゅ',	'ょ',	'ャ',	'ュ',	'ョ',	'っ',	'ッ',	'ん',	'ン',	'.',	'。',	'、',	'ー'];
+	// prettier-ignore
+	const joinTogether = ['今日',	'一人',	'二人',	'ゃう',	'ゅう',	'ょう',	'ャウ',	'ュウ',	'ョウ',	'えい',	'エイ',	'ない'];
 
 	// Variables
+
+	const { text, times } = data.song;
+	let furiganaInputProps:
+		| { visible: false }
+		| {
+				visible: true;
+				index: number;
+				charRef: HTMLSpanElement;
+		  } = {
+		visible: false
+	};
 
 	let playerDiv: HTMLDivElement;
 	let player: YoutubePlayerPlus;
 	let handle: number | undefined;
 	let onCount = 0;
 
-	let mode = EditingMode.Playback;
-	let correctionStep = CorrectionStep.SelectStartPoint;
-	let correctionData = {
-		beginning: 99999,
-		end: 0
+	$: mode = $state.mode;
+	$: correctionStep = $state.correctionStep;
+	$: correctionData = $state.correctionData;
+	$: currentInstruction = $state.currentInstruction;
+
+	const timeSteps: number[] = [0];
+	let newTimeSteps: number[][];
+
+	// Functions
+
+	const isKanji = (char?: string) => (!char ? false : /[\u4e00-\u9faf]/.test(char));
+
+	const sumArray = (arr: (string | [string, string])[]): number[] => {
+		return arr.map((_, i) =>
+			arr
+				.slice(0, i)
+				.reduce((acc, curr) => acc + (typeof curr === 'string' ? 1 : curr[1].length), 0)
+		);
 	};
-	let currentInstruction = '';
 
-	const lines = data.song.text.split('\n');
-
-	const chars = lines
-		.map((line) => line.split(''))
-		.map((line) => {
-			let newLine = [];
-			for (let i = 0; i < line.length; i++) {
-				newLine.push(line[i]);
-				if (i === line.length - 1) {
-					continue;
-				}
-				while (
-					i !== line.length - 1 &&
-					([
-						'ゃ',
-						'ゅ',
-						'ょ',
-						'ャ',
-						'ュ',
-						'ョ',
-						'っ',
-						'ッ',
-						'ん',
-						'ン',
-						'.',
-						'。',
-						'、',
-						'ー'
-					].includes(line[i + 1]) ||
-						!line[i + 1].trim())
-				) {
-					newLine[newLine.length - 1] += line[i + 1];
-					i++;
-				}
-				if (
-					[
-						'今日',
-						'一人',
-						'二人',
-						'ゃう',
-						'ゅう',
-						'ょう',
-						'ャウ',
-						'ュウ',
-						'ョウ',
-						'えい',
-						'エイ',
-						'ない'
-					].includes(line[i] + line[i + 1])
-				) {
-					newLine[newLine.length - 1] += line[i + 1];
-					i++;
-				}
+	const memoize = <T extends (...args: any[]) => any>(fn: T) => {
+		const cache = new Map<string, ReturnType<T>>();
+		const cached = (...params: Parameters<T>): ReturnType<T> => {
+			const key = params.join();
+			let val: ReturnType<T> | undefined;
+			if ((val = cache.get(key))) {
+				return val;
 			}
-			return newLine;
-		});
+			const newVal = fn(...params);
+			cache.set(key, newVal);
+			return newVal;
+		};
+		return cached;
+	};
 
-	const timeSteps = chars.map((line, i) =>
-		chars.slice(0, i).reduce((acc, curr) => acc + curr.length, 0)
-	);
+	const getFuriganaStyles = (props: typeof furiganaInputProps) => {
+		const { visible } = props;
 
-	// Functions / handlers
+		if (!visible) {
+			return 'display: none';
+		}
+
+		const { offsetLeft, offsetTop, offsetWidth } = props.charRef;
+
+		return (
+			`top: ${Math.max(offsetTop - 35, 0)}px;` +
+			`left: ${Math.max(offsetLeft - 60 + offsetWidth / 2, 0)}px`
+		);
+	};
+
+	// Methods
+
+	const getCharacterStyles = memoize((shouldBeOn: boolean, index: number, char?: string) => {
+		return [
+			isKanji(char) && 'important-red',
+			mode === EditingMode.Correction &&
+				index >= correctionData.beginning &&
+				index <= correctionData.end &&
+				'red',
+			shouldBeOn &&
+				(correctionStep === CorrectionStep.FixTimings &&
+				index >= correctionData.beginning &&
+				index <= correctionData.end
+					? 'green'
+					: 'white')
+		]
+			.filter((a): a is string => typeof a === 'string')
+			.join(' ');
+	});
 
 	const startRender = () => {
 		if (handle) {
@@ -110,15 +115,25 @@
 		handle = undefined;
 	};
 
+	// Handlers
+
 	const handleFrame = () => {
+		if (!times) return;
 		const time = player.getCurrentTime();
+		if (
+			mode === EditingMode.Correction &&
+			onCount === correctionData.beginning &&
+			time < times[correctionData.end + 1]
+		) {
+			return;
+		}
 		// Go back in time if seeked backwards
 		if (onCount > 0) {
-			while (data.song.times![onCount - 1] > time) {
+			while (times[onCount - 1] > time) {
 				onCount--;
 			}
 		}
-		while (data.song.times![onCount] <= time) {
+		while (times[onCount] <= time) {
 			onCount++;
 		}
 		if (
@@ -126,63 +141,98 @@
 			correctionStep === CorrectionStep.FixTimings &&
 			onCount > correctionData.end
 		) {
-			mode = EditingMode.Playback;
-			currentInstruction = 'Correction done!';
+			state.update((state) => ({
+				...state,
+				mode: EditingMode.Playback,
+				currentInstruction: 'Correction done!'
+			}));
 		}
 	};
 
 	const handleFixTimingsClick = () => {
 		player.pause();
-		mode = EditingMode.Correction;
-		correctionStep = CorrectionStep.SelectStartPoint;
-		correctionData = {
-			beginning: 99999,
-			end: 0
-		};
-		currentInstruction = 'Select the beginning of the incorrect segment';
+		state.set({
+			mode: EditingMode.Correction,
+			correctionStep: CorrectionStep.SelectStartPoint,
+			correctionData: {
+				beginning: 99999,
+				end: 0
+			},
+			currentInstruction: 'Select the beginning of the incorrect segment'
+		});
 	};
 
-	const handleCharClick = (i: number) => {
+	const handleCharClick = (i: number, e?: MouseEvent) => {
 		switch (mode) {
 			case EditingMode.Uninitialized:
-				break;
-			case EditingMode.Playback:
-				if (data.song.times) {
-					player.seek(data.song.times[i]);
+				const char = text[i];
+				if (typeof char === 'string' && isKanji(char)) {
+					if (!e?.target) {
+						return;
+					}
+					furiganaInputProps = {
+						visible: true,
+						index: i,
+						charRef: e.target as HTMLSpanElement
+					};
 				}
 				break;
+			case EditingMode.Playback:
+				if (!times) return;
+				player.seek(times[i]);
+				break;
 			case EditingMode.Transcription:
+				if (!times) return;
 				break;
 			case EditingMode.Correction:
+				if (!times) return;
 				switch (correctionStep) {
 					case CorrectionStep.SelectStartPoint:
-						correctionData.beginning = i;
-						correctionData.end = i;
-						currentInstruction = 'Select the end of the incorrect segment';
-						correctionStep = CorrectionStep.SelectEndPoint;
+						state.update((state) => ({
+							...state,
+							correctionData: {
+								beginning: i,
+								end: i
+							},
+							currentInstruction: 'Select the end of the incorrect segment',
+							correctionStep: CorrectionStep.SelectEndPoint
+						}));
 						break;
 					case CorrectionStep.SelectEndPoint:
 						correctionData.end = i;
-						player.seek(
-							Math.max(data.song.times![correctionData.beginning] - 5 * player.playbackRate, 0)
-						);
+						player.seek(Math.max(times[correctionData.beginning] - 5 * player.playbackRate, 0));
 						player.play();
 
 						let countdown = 5;
-						currentInstruction = `Begin transcribing in ${countdown--}...`;
+						state.update((state) => ({
+							...state,
+							currentInstruction: `Begin transcribing in ${countdown--}...`
+						}));
 
 						let _handle = window.setInterval(() => {
-							currentInstruction = `Begin transcribing in ${countdown}...`;
+							state.update((state) => ({
+								...state,
+								currentInstruction: `Begin transcribing in ${countdown}...`
+							}));
 							if (countdown-- === 0) {
-								currentInstruction = 'Transcribe!';
+								state.update((state) => ({
+									...state,
+									currentInstruction: 'Transcribe!'
+								}));
 								window.clearInterval(_handle);
 							}
 						}, 1000);
 
-						correctionStep = CorrectionStep.FixTimings;
+						state.update((state) => ({
+							...state,
+							correctionStep: CorrectionStep.FixTimings
+						}));
 						break;
 					case CorrectionStep.FixTimings:
-						mode = EditingMode.Playback;
+						state.update((state) => ({
+							...state,
+							mode: EditingMode.Playback
+						}));
 						break;
 				}
 				break;
@@ -190,18 +240,25 @@
 	};
 
 	const handleCharHover = (i: number) => {
+		if (!times) return;
 		if (mode !== EditingMode.Correction) return;
 		switch (correctionStep) {
 			case CorrectionStep.SelectStartPoint: {
-				currentInstruction = displayTime(data.song.times[i]);
+				state.update((state) => ({
+					...state,
+					currentInstruction: displayTime(times[i])
+				}));
 				break;
 			}
 			case CorrectionStep.SelectEndPoint: {
-				currentInstruction = displayTime(
-					data.song.times[correctionData.beginning],
-					data.song.times[i]
-				);
-				correctionData.end = Math.max(correctionData.beginning, i);
+				state.update((state) => ({
+					...state,
+					correctionData: {
+						...state.correctionData,
+						end: Math.max(correctionData.beginning, i)
+					},
+					currentInstruction: displayTime(times[correctionData.beginning], times[i])
+				}));
 				break;
 			}
 			case CorrectionStep.FixTimings:
@@ -213,13 +270,69 @@
 		window.location.pathname = e.currentTarget.value;
 	};
 
+	const handleSpacebarClick = () => {
+		switch (mode) {
+			case EditingMode.Uninitialized:
+				break;
+			case EditingMode.Playback:
+				break;
+			case EditingMode.Transcription:
+				break;
+			case EditingMode.Correction:
+				switch (correctionStep) {
+					case CorrectionStep.SelectStartPoint:
+						break;
+					case CorrectionStep.SelectEndPoint:
+						break;
+					case CorrectionStep.FixTimings:
+						if (onCount >= correctionData.beginning && onCount <= correctionData.end) {
+							onCount++;
+						}
+						break;
+				}
+				break;
+		}
+	};
+
+	const handleFuriganaInputEnter = (value: string) => {
+		const { visible } = furiganaInputProps;
+		if (!visible) {
+			return;
+		}
+
+		const { index } = furiganaInputProps;
+		const oldChar = text[index];
+		if (typeof oldChar === 'string') {
+			text[index] = [oldChar, value];
+		}
+
+		furiganaInputProps = {
+			visible: false
+		};
+	};
+
 	// Lifecycle methods
 
 	onMount(() => {
+		window.addEventListener('keydown', (event) => {
+			if (event.key === ' ') {
+				event.preventDefault();
+				handleSpacebarClick();
+			}
+		});
 		return () => stopRender();
 	});
 
 	// Dynamic values
+
+	$: chars = [text];
+	$: newTimeSteps = [
+		text.map((_, i) =>
+			text
+				.slice(0, i)
+				.reduce((acc, curr) => acc + (typeof curr === 'string' ? 1 : curr[1].length), 0)
+		)
+	];
 
 	$: {
 		if (playerDiv) {
@@ -229,45 +342,76 @@
 				height: 390
 			});
 			player.load(data.song.videoId, true);
-			player.setPlaybackRate(2);
-			startRender();
+			player.setPlaybackRate(1);
+			if (times) {
+				startRender();
+			}
 		}
 	}
 
-	// $: console.log({ chars, lines, timeSteps });
-	// $: console.log({ onCount });
-	$: console.log({
-		mode,
-		correctionStep,
-		begin: correctionData.beginning,
-		end: correctionData.end
+	$: furiganaStyles = getFuriganaStyles(furiganaInputProps);
+
+	console.log({
+		text,
+		timeSteps,
+		newTimeSteps
 	});
+	console.log($state);
 </script>
 
 <header>カラオケ</header>
+<input
+	class="furigana-input"
+	style={furiganaStyles}
+	on:change={(e) => {
+		handleFuriganaInputEnter(e.currentTarget.value);
+		e.currentTarget.value = '';
+	}}
+/>
 <main class="flex">
 	<p id="text">
 		{#each chars as line, i}
 			<div>
 				{#each line as char, j}
-					<span
-						class={[
-							mode === EditingMode.Correction &&
-								timeSteps[i] + j >= correctionData.beginning &&
-								timeSteps[i] + j <= correctionData.end &&
-								'red',
-							timeSteps[i] + j < onCount &&
-								(correctionStep === CorrectionStep.FixTimings &&
-								timeSteps[i] + j >= correctionData.beginning &&
-								timeSteps[i] + j <= correctionData.end
-									? 'green'
-									: 'white')
-						]
-							.filter((a) => a)
-							.join(' ')}
-						on:click={() => handleCharClick(timeSteps[i] + j)}
-						on:mouseenter={() => handleCharHover(timeSteps[i] + j)}>{char}</span
-					>
+					{#if typeof char === 'string'}
+						<span
+							class={[
+								'character',
+								getCharacterStyles(onCount > newTimeSteps[i][j], newTimeSteps[i][j], char)
+							].join(' ')}
+							on:click={(e) => handleCharClick(newTimeSteps[i][j], e)}
+							on:mouseenter={() => handleCharHover(newTimeSteps[i][j])}
+						>
+							{char}
+						</span>
+					{:else}
+						<ruby>
+							<span
+								class={[
+									'character',
+									getCharacterStyles(onCount > newTimeSteps[i][j], newTimeSteps[i][j])
+								].join(' ')}
+								on:click={() => handleCharClick(newTimeSteps[i][j])}
+								on:mouseenter={() => handleCharHover(newTimeSteps[i][j])}
+							>
+								{char[0]}
+							</span>
+							<rt>
+								{#each char[1].split('') as penis, k}
+									<span
+										class={getCharacterStyles(
+											onCount > newTimeSteps[i][j] + k,
+											newTimeSteps[i][j] + k
+										)}
+										on:click={() => handleCharClick(newTimeSteps[i][j] + k)}
+										on:mouseenter={() => handleCharHover(newTimeSteps[i][j] + k)}
+									>
+										{penis}
+									</span>
+								{/each}
+							</rt>
+						</ruby>
+					{/if}
 				{/each}
 			</div>
 		{/each}
@@ -280,12 +424,9 @@
 			<div>
 				<button id="record" type="button" disabled>Start transcription</button>
 				<button id="replay" type="button" disabled>Start lyrics</button>
-				<button
-					id="correct"
-					type="button"
-					disabled={!data.song.times}
-					on:click={handleFixTimingsClick}>Correct timings</button
-				>
+				<button id="correct" type="button" disabled={!times} on:click={handleFixTimingsClick}>
+					Correct timings
+				</button>
 			</div>
 			<select
 				id="select-song"
@@ -310,13 +451,36 @@
 		font-family: 'MS Mincho';
 	}
 
-	#aside {
-		position: sticky;
-		top: 52px;
-		height: fit-content;
+	@media (min-width: 800px) {
+		#aside {
+			position: sticky;
+			top: 52px;
+			height: fit-content;
+		}
+	}
+
+	@media (max-width: 800px) {
+		.flex {
+			flex-direction: column;
+		}
+	}
+
+	.character {
+		display: inline;
+	}
+
+	.furigana-input {
+		font-size: 1.5em;
+		position: absolute;
+		text-align: center;
+		width: 120px;
 	}
 
 	.red {
+		color: red;
+	}
+
+	span.important-red {
 		color: red;
 	}
 

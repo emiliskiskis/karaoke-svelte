@@ -3,10 +3,15 @@ import type { Song, SongMeta } from './types';
 
 export const noId = { projection: { _id: 0 } };
 
-export const query = async <T>(q: (collection: Collection<Song>) => T) => {
+// prettier-ignore
+export const addBefore = ['ゃ',	'ゅ',	'ょ',	'ャ',	'ュ',	'ョ',	'っ',	'ッ',	'ん',	'ン',	'.',	'。',	'、',	'ー'];
+// prettier-ignore
+export const joinTogether = ['今日',	'一人',	'二人',	'ゃう',	'ゅう',	'ょう',	'ャウ',	'ュウ',	'ョウ',	'えい',	'エイ',	'ない'];
+
+export const query = async <T>(q: (collection: Collection<Song>) => Promise<T>) => {
 	const client = new MongoClient('mongodb://localhost:27017');
 	try {
-		const collection = client.db('local').collection<Song>('songs');
+		const collection = client.db('karaoke').collection<Song>('songs');
 		return await q(collection);
 	} finally {
 		await client.close();
@@ -20,3 +25,5 @@ export const getSongs = () =>
 
 export const getSong = (id: string) =>
 	query((collection) => collection.findOne<Song>({ videoId: id }, noId));
+
+export const addSong = (song: Song) => query((collection) => collection.insertOne(song));

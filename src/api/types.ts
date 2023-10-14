@@ -1,6 +1,7 @@
 export interface Song extends SongMeta {
-	text: string;
-	times: number[];
+	text: (string | [string, string])[];
+	lines?: string[][];
+	times?: number[];
 }
 
 export interface SongMeta {
