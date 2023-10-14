@@ -27,3 +27,15 @@ export const getSong = (id: string) =>
 	query((collection) => collection.findOne<Song>({ videoId: id }, noId));
 
 export const addSong = (song: Song) => query((collection) => collection.insertOne(song));
+
+export const saveSong = (videoId: string, song: Partial<Song>) =>
+	query((collection) =>
+		collection.updateOne(
+			{
+				videoId
+			},
+			{
+				$set: { ...song }
+			}
+		)
+	);

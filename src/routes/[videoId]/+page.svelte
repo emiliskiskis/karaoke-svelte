@@ -2,8 +2,6 @@
 	import { displayTime } from '@/lib';
 	import { CorrectionStep, EditingMode, state } from '@/lib/stores';
 	import { onMount } from 'svelte';
-	import type { MouseEventHandler } from 'svelte/elements.js';
-	import type { T, V } from 'vitest/dist/types-198fd1d9.js';
 	import YoutubePlayerPlus from 'youtube-player-plus';
 
 	export let data;
@@ -17,7 +15,7 @@
 
 	// Variables
 
-	const { text, times } = data.song;
+	const { text, times, videoId } = data.song;
 	let furiganaInputProps:
 		| { visible: false }
 		| {
@@ -166,7 +164,7 @@
 		switch (mode) {
 			case EditingMode.Uninitialized:
 				const char = text[i];
-				if (typeof char === 'string' && isKanji(char)) {
+				if (isKanji(typeof char === 'string' ? char : char[0])) {
 					if (!e?.target) {
 						return;
 					}
@@ -302,9 +300,30 @@
 
 		const { index } = furiganaInputProps;
 		const oldChar = text[index];
+
 		if (typeof oldChar === 'string') {
+			if (!value) return;
 			text[index] = [oldChar, value];
+		} else {
+			if (!value) {
+				text[index] = oldChar[0];
+			} else {
+				text[index] = [oldChar[0], value];
+			}
 		}
+
+		fetch(`/${videoId}`, {
+			method: 'PATCH',
+			body: JSON.stringify({
+				videoId,
+				song: {
+					text
+				}
+			}),
+			headers: {
+				'Content-Type': 'application/json'
+			}
+		});
 
 		furiganaInputProps = {
 			visible: false
@@ -365,8 +384,11 @@
 	style={furiganaStyles}
 	on:change={(e) => {
 		handleFuriganaInputEnter(e.currentTarget.value);
-		e.currentTarget.value = '';
+		// e.currentTarget.value = '';
 	}}
+	value={furiganaInputProps.visible && typeof text[furiganaInputProps.index] === 'object'
+		? text[furiganaInputProps.index][1]
+		: ''}
 />
 <main class="flex">
 	<p id="text">
@@ -391,7 +413,7 @@
 									'character',
 									getCharacterStyles(onCount > newTimeSteps[i][j], newTimeSteps[i][j])
 								].join(' ')}
-								on:click={() => handleCharClick(newTimeSteps[i][j])}
+								on:click={(e) => handleCharClick(newTimeSteps[i][j], e)}
 								on:mouseenter={() => handleCharHover(newTimeSteps[i][j])}
 							>
 								{char[0]}
