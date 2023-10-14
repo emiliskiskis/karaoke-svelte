@@ -36,11 +36,15 @@
 	$: correctionData = $state.correctionData;
 	$: currentInstruction = $state.currentInstruction;
 
-	const timeSteps: number[] = [0];
-	let newTimeSteps: number[][];
+	let timeSteps = [
+		text.map((_, i) =>
+			text
+				.slice(0, i)
+				.reduce((acc, curr) => acc + (typeof curr === 'string' ? 1 : curr[1].length), 0)
+		)
+	];
 
 	// Functions
-
 	const isKanji = (char?: string) => (!char ? false : /[\u4e00-\u9faf]/.test(char));
 
 	const sumArray = (arr: (string | [string, string])[]): number[] => {
@@ -149,7 +153,7 @@
 
 	const handleFixTimingsClick = () => {
 		player.pause();
-		state.set({
+		$state = {
 			mode: EditingMode.Correction,
 			correctionStep: CorrectionStep.SelectStartPoint,
 			correctionData: {
@@ -157,12 +161,19 @@
 				end: 0
 			},
 			currentInstruction: 'Select the beginning of the incorrect segment'
-		});
+		};
 	};
 
 	const handleCharClick = (i: number, e?: MouseEvent) => {
 		switch (mode) {
 			case EditingMode.Uninitialized:
+				if (furiganaInputProps.visible && furiganaInputProps.index === i) {
+					furiganaInputProps = {
+						visible: false
+					};
+					return;
+				}
+
 				const char = text[i];
 				if (isKanji(typeof char === 'string' ? char : char[0])) {
 					if (!e?.target) {
@@ -238,8 +249,10 @@
 	};
 
 	const handleCharHover = (i: number) => {
-		if (!times) return;
-		if (mode !== EditingMode.Correction) return;
+		if (mode !== EditingMode.Correction || !times) {
+			return;
+		}
+
 		switch (correctionStep) {
 			case CorrectionStep.SelectStartPoint: {
 				state.update((state) => ({
@@ -345,7 +358,7 @@
 	// Dynamic values
 
 	$: chars = [text];
-	$: newTimeSteps = [
+	$: timeSteps = [
 		text.map((_, i) =>
 			text
 				.slice(0, i)
@@ -364,18 +377,19 @@
 			player.setPlaybackRate(1);
 			if (times) {
 				startRender();
+				$state.mode = EditingMode.Playback;
 			}
 		}
 	}
 
 	$: furiganaStyles = getFuriganaStyles(furiganaInputProps);
 
-	console.log({
+	$: console.log({
 		text,
-		timeSteps,
-		newTimeSteps
+		newTimeSteps: timeSteps
 	});
-	console.log($state);
+	$: console.log($state);
+	$: console.log(furiganaInputProps);
 </script>
 
 <header>カラオケ</header>
@@ -384,7 +398,7 @@
 	style={furiganaStyles}
 	on:change={(e) => {
 		handleFuriganaInputEnter(e.currentTarget.value);
-		// e.currentTarget.value = '';
+		e.currentTarget.value = '';
 	}}
 	value={furiganaInputProps.visible && typeof text[furiganaInputProps.index] === 'object'
 		? text[furiganaInputProps.index][1]
@@ -399,10 +413,10 @@
 						<span
 							class={[
 								'character',
-								getCharacterStyles(onCount > newTimeSteps[i][j], newTimeSteps[i][j], char)
+								getCharacterStyles(onCount > timeSteps[i][j], timeSteps[i][j], char)
 							].join(' ')}
-							on:click={(e) => handleCharClick(newTimeSteps[i][j], e)}
-							on:mouseenter={() => handleCharHover(newTimeSteps[i][j])}
+							on:click={(e) => handleCharClick(timeSteps[i][j], e)}
+							on:mouseenter={() => handleCharHover(timeSteps[i][j])}
 						>
 							{char}
 						</span>
@@ -411,22 +425,19 @@
 							<span
 								class={[
 									'character',
-									getCharacterStyles(onCount > newTimeSteps[i][j], newTimeSteps[i][j])
+									getCharacterStyles(onCount > timeSteps[i][j], timeSteps[i][j])
 								].join(' ')}
-								on:click={(e) => handleCharClick(newTimeSteps[i][j], e)}
-								on:mouseenter={() => handleCharHover(newTimeSteps[i][j])}
+								on:click={(e) => handleCharClick(timeSteps[i][j], e)}
+								on:mouseenter={() => handleCharHover(timeSteps[i][j])}
 							>
 								{char[0]}
 							</span>
 							<rt>
 								{#each char[1].split('') as penis, k}
 									<span
-										class={getCharacterStyles(
-											onCount > newTimeSteps[i][j] + k,
-											newTimeSteps[i][j] + k
-										)}
-										on:click={() => handleCharClick(newTimeSteps[i][j] + k)}
-										on:mouseenter={() => handleCharHover(newTimeSteps[i][j] + k)}
+										class={getCharacterStyles(onCount > timeSteps[i][j] + k, timeSteps[i][j] + k)}
+										on:click={() => handleCharClick(timeSteps[i][j] + k)}
+										on:mouseenter={() => handleCharHover(timeSteps[i][j] + k)}
 									>
 										{penis}
 									</span>
