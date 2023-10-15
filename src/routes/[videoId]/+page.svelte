@@ -20,7 +20,8 @@
 		| { visible: false }
 		| {
 				visible: true;
-				index: number;
+				i: number;
+				j: number;
 				charRef: HTMLSpanElement;
 		  } = {
 		visible: false
@@ -36,16 +37,11 @@
 	$: correctionData = $state.correctionData;
 	$: currentInstruction = $state.currentInstruction;
 
-	let timeSteps = [
-		text.map((_, i) =>
-			text
-				.slice(0, i)
-				.reduce((acc, curr) => acc + (typeof curr === 'string' ? 1 : curr[1].length), 0)
-		)
-	];
+	let timeSteps: number[][];
+	let editingTimes: number[] = [];
 
 	// Functions
-	const isKanji = (char?: string) => (!char ? false : /[\u4e00-\u9faf]/.test(char));
+	const isKanji = (char?: string) => (!char ? false : /[\u4e00-\u9faf々]/.test(char));
 
 	const sumArray = (arr: (string | [string, string])[]): number[] => {
 		return arr.map((_, i) =>
@@ -164,24 +160,28 @@
 		};
 	};
 
-	const handleCharClick = (i: number, e?: MouseEvent) => {
+	const handleCharClick = (i: number, j: number, e?: MouseEvent) => {
 		switch (mode) {
 			case EditingMode.Uninitialized:
-				if (furiganaInputProps.visible && furiganaInputProps.index === i) {
-					furiganaInputProps = {
-						visible: false
-					};
+				if (furiganaInputProps.visible) {
+					const { i: fi, j: fj } = furiganaInputProps;
+					if (i === fi && j === fj) {
+						furiganaInputProps = {
+							visible: false
+						};
+					}
 					return;
 				}
 
-				const char = text[i];
+				const char = text[i][j];
 				if (isKanji(typeof char === 'string' ? char : char[0])) {
 					if (!e?.target) {
 						return;
 					}
 					furiganaInputProps = {
 						visible: true,
-						index: i,
+						i,
+						j,
 						charRef: e.target as HTMLSpanElement
 					};
 				}
@@ -288,6 +288,25 @@
 			case EditingMode.Playback:
 				break;
 			case EditingMode.Transcription:
+				const time = +player.getCurrentTime().toFixed(2);
+				editingTimes.push(time);
+
+				onCount++;
+				if (editingTimes.length === timeSteps.at(-1)?.at(-1) + text.at(-1)?.at(-1)?.length) {
+					fetch(`/${videoId}`, {
+						method: 'PATCH',
+						body: JSON.stringify({
+							videoId,
+							song: {
+								times: editingTimes
+							}
+						}),
+						headers: {
+							'Content-Type': 'application/json'
+						}
+					});
+					$state.mode = EditingMode.Uninitialized;
+				}
 				break;
 			case EditingMode.Correction:
 				switch (correctionStep) {
@@ -311,17 +330,17 @@
 			return;
 		}
 
-		const { index } = furiganaInputProps;
-		const oldChar = text[index];
+		const { i, j } = furiganaInputProps;
+		const oldChar = text[i][j];
 
 		if (typeof oldChar === 'string') {
 			if (!value) return;
-			text[index] = [oldChar, value];
+			text[i][j] = [oldChar, value];
 		} else {
 			if (!value) {
-				text[index] = oldChar[0];
+				text[i][j] = oldChar[0];
 			} else {
-				text[index] = [oldChar[0], value];
+				text[i][j] = [oldChar[0], value];
 			}
 		}
 
@@ -343,6 +362,10 @@
 		};
 	};
 
+	const handleStartTranscriptionClick = () => {
+		$state.mode = EditingMode.Transcription;
+	};
+
 	// Lifecycle methods
 
 	onMount(() => {
@@ -357,14 +380,27 @@
 
 	// Dynamic values
 
-	$: chars = [text];
-	$: timeSteps = [
-		text.map((_, i) =>
-			text
-				.slice(0, i)
-				.reduce((acc, curr) => acc + (typeof curr === 'string' ? 1 : curr[1].length), 0)
-		)
-	];
+	$: timeSteps = text
+		.map((line) => line.filter((char) => typeof char === 'object' || !/\s/.test(char)))
+		.map((line, i) =>
+			line.map(
+				(_, j) =>
+					text
+						.slice(0, i)
+						.reduce(
+							(acc, line) =>
+								acc +
+								line.reduce(
+									(acc, char) => acc + (typeof char === 'string' ? 1 : char[1].length),
+									0
+								),
+							0
+						) +
+					line
+						.slice(0, j)
+						.reduce((acc, char) => acc + (typeof char === 'string' ? 1 : char[1].length), 0)
+			)
+		);
 
 	$: {
 		if (playerDiv) {
@@ -384,10 +420,7 @@
 
 	$: furiganaStyles = getFuriganaStyles(furiganaInputProps);
 
-	$: console.log({
-		text,
-		newTimeSteps: timeSteps
-	});
+	$: console.log({ text, timeSteps });
 	$: console.log($state);
 	$: console.log(furiganaInputProps);
 </script>
@@ -400,26 +433,31 @@
 		handleFuriganaInputEnter(e.currentTarget.value);
 		e.currentTarget.value = '';
 	}}
-	value={furiganaInputProps.visible && typeof text[furiganaInputProps.index] === 'object'
-		? text[furiganaInputProps.index][1]
+	value={furiganaInputProps.visible &&
+	typeof text[furiganaInputProps.i][furiganaInputProps.j] === 'object'
+		? text[furiganaInputProps.i][furiganaInputProps.j][1]
 		: ''}
 />
 <main class="flex">
 	<p id="text">
-		{#each chars as line, i}
+		{#each text as line, i}
 			<div>
 				{#each line as char, j}
 					{#if typeof char === 'string'}
-						<span
-							class={[
-								'character',
-								getCharacterStyles(onCount > timeSteps[i][j], timeSteps[i][j], char)
-							].join(' ')}
-							on:click={(e) => handleCharClick(timeSteps[i][j], e)}
-							on:mouseenter={() => handleCharHover(timeSteps[i][j])}
-						>
+						{#if /\s/.test(char)}
 							{char}
-						</span>
+						{:else}
+							<span
+								class={[
+									'character',
+									getCharacterStyles(onCount > timeSteps[i][j], timeSteps[i][j], char)
+								].join(' ')}
+								on:click={(e) => handleCharClick(i, j, e)}
+								on:mouseenter={() => handleCharHover(timeSteps[i][j])}
+							>
+								{char}
+							</span>
+						{/if}
 					{:else}
 						<ruby>
 							<span
@@ -427,7 +465,7 @@
 									'character',
 									getCharacterStyles(onCount > timeSteps[i][j], timeSteps[i][j])
 								].join(' ')}
-								on:click={(e) => handleCharClick(timeSteps[i][j], e)}
+								on:click={(e) => handleCharClick(i, j, e)}
 								on:mouseenter={() => handleCharHover(timeSteps[i][j])}
 							>
 								{char[0]}
@@ -436,7 +474,7 @@
 								{#each char[1].split('') as penis, k}
 									<span
 										class={getCharacterStyles(onCount > timeSteps[i][j] + k, timeSteps[i][j] + k)}
-										on:click={() => handleCharClick(timeSteps[i][j] + k)}
+										on:click={() => handleCharClick(i, j + k)}
 										on:mouseenter={() => handleCharHover(timeSteps[i][j] + k)}
 									>
 										{penis}
@@ -455,7 +493,9 @@
 		</div>
 		<div class="flex between">
 			<div>
-				<button id="record" type="button" disabled>Start transcription</button>
+				<button id="record" type="button" on:click={handleStartTranscriptionClick}
+					>Start transcription</button
+				>
 				<button id="replay" type="button" disabled>Start lyrics</button>
 				<button id="correct" type="button" disabled={!times} on:click={handleFixTimingsClick}>
 					Correct timings

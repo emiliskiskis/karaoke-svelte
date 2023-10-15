@@ -20,8 +20,13 @@ export const actions: Actions = {
 			return;
 		}
 
+		const splitText = text
+			.split('\r\n')
+			.flatMap((text) => text.split('\n'))
+			.map((line) => line.split(''));
+
 		const song: Song = {
-			text: text.split(''),
+			text: splitText,
 			videoId,
 			title
 		};

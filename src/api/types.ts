@@ -1,5 +1,5 @@
 export interface Song extends SongMeta {
-	text: (string | [string, string])[];
+	text: (string | [string, string])[][];
 	lines?: string[][];
 	times?: number[];
 }
