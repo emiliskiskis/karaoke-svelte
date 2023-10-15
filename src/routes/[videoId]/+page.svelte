@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { displayTime } from '@/lib';
 	import { CorrectionStep, EditingMode, state } from '@/lib/stores';
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import YoutubePlayerPlus from 'youtube-player-plus';
 
 	export let data;
@@ -292,7 +293,10 @@
 				editingTimes.push(time);
 
 				onCount++;
-				if (editingTimes.length === timeSteps.at(-1)?.at(-1) + text.at(-1)?.at(-1)?.length) {
+				if (
+					editingTimes.length ===
+					(timeSteps.at(-1)?.at(-1) ?? 0) + (text.at(-1)?.at(-1)?.length ?? 0)
+				) {
 					fetch(`/${videoId}`, {
 						method: 'PATCH',
 						body: JSON.stringify({
@@ -375,7 +379,16 @@
 				handleSpacebarClick();
 			}
 		});
+		window.addEventListener('beforeunload', () => {
+			localStorage.setItem('current_time', player.getCurrentTime().toFixed(2));
+		});
 		return () => stopRender();
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			localStorage.setItem('current_time', player.getCurrentTime().toFixed(2));
+		}
 	});
 
 	// Dynamic values
@@ -410,6 +423,14 @@
 				height: 390
 			});
 			player.load(data.song.videoId, true);
+			const playingCallback = () => {
+				player.seek(+(localStorage.getItem('current_time') || 0));
+				player.removeListener('playing', playingCallback);
+			};
+			player.addListener('playing', playingCallback);
+			player.addListener('ended', () => {
+				localStorage.removeItem('current_time');
+			});
 			player.setPlaybackRate(1);
 			if (times) {
 				startRender();
