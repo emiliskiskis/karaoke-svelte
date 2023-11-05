@@ -9,11 +9,6 @@
 
 	// Types and enums
 
-	// prettier-ignore
-	const addBefore = ['ゃ',	'ゅ',	'ょ',	'ャ',	'ュ',	'ョ',	'っ',	'ッ',	'ん',	'ン',	'.',	'。',	'、',	'ー'];
-	// prettier-ignore
-	const joinTogether = ['今日',	'一人',	'二人',	'ゃう',	'ゅう',	'ょう',	'ャウ',	'ュウ',	'ョウ',	'えい',	'エイ',	'ない'];
-
 	// Variables
 
 	const { text, times, videoId } = data.song;
@@ -539,10 +534,8 @@
 <style>
 	p {
 		font-size: 36px;
-		font-weight: bold;
 		width: fit-content;
 		margin: 10px;
-		font-family: 'MS Mincho';
 	}
 
 	@media (min-width: 800px) {
@@ -616,6 +609,5 @@
 
 	:global(body) {
 		background-color: lightgreen;
-		font-family: 'Arial';
 	}
 </style>
